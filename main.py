@@ -1,5 +1,6 @@
 import json
 import statistics
+from errors import ClassificationParseError
 from schema import EvalCase
 from triage import classify
 
@@ -10,7 +11,10 @@ def load(path):
 def run(cases):
     results = []
     for c in cases:
-        pred = classify(c.log_excerpt, c.diff_summary)
+        try:
+            pred = classify(c.log_excerpt, c.diff_summary)
+        except ClassificationParseError:
+            pred = "PARSE_ERROR"
         results.append({"id": c.id, "expected": c.label,
                     "predicted": pred, "correct": pred == c.label})
     return results
