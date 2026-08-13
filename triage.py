@@ -1,4 +1,5 @@
 import json
+from typing import get_args
 
 from schema import Label
 from providers import get_provider
@@ -42,7 +43,7 @@ def classify(log_excerpt: str, diff_summary: str | None = None) -> str:
         raise ClassificationParseError(raw, "response was not a valid JSON") from e
 
     label = parsed.get("label")
-    if label not in Label:
+    if label not in get_args(Label):
         raise ClassificationParseError(raw, f"label {label!r} is not in the allowed set")
 
     return label
