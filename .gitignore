@@ -153,3 +153,5 @@ cython_debug/
 
 # python cache
 __pycache__
+
+sourcing/candidates
