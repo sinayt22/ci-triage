@@ -127,18 +127,14 @@ def fetch(repo: str, token:str, max_cases:int, out_path:Path, since: str = None)
     candidates = []
     
     for run in runs:
-        print(f"checking run: {run["id"]}")
         if len(candidates) >= max_cases:
             break
 
         diff_summary = get_diff_summary(repo, run, session)
-        if diff_summary != None:
-            print(f"    found diff summary for run: {run['id']}")
 
         failed_jobs = list_failed_jobs(repo, run["id"], session)
         if not failed_jobs:
             continue
-        print(f"    found failed jobs for {run["id"]}")
 
         for job in failed_jobs:
             if len(candidates) >= max_cases:
@@ -146,7 +142,6 @@ def fetch(repo: str, token:str, max_cases:int, out_path:Path, since: str = None)
             excerpt = get_job_log_excerpt(repo, job["id"], session)
             if not excerpt:
                 continue
-            print(f"    found log excerpt for run {run["id"]}")
 
             candidates.append({
                 "id": f"{repo.replace('/', '-')}-run{run["id"]}-job{job["id"]}",
@@ -176,7 +171,7 @@ def fetch(repo: str, token:str, max_cases:int, out_path:Path, since: str = None)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--repo", default="encode/httpx")
+    parser.add_argument("--repo", default="pandas-dev/pandas")
     parser.add_argument("--max-cases", type=int, default=50)
     parser.add_argument("--out", default=None)
     parser.add_argument("--since", default=datetime.now() - timedelta(days=90))
