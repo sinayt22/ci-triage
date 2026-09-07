@@ -26,21 +26,23 @@ run, simply because they depend on: timing, not guaranteed order, or specific co
     Check the logs for failing test:
 
 2. Log summary shows tests failed due to timeout of specific action of the test, distinguished from a timeout of the underlying infrastructure to run the test.
-    * To distinguish between test timeout and infra timeout - look for these signs:
-        - Has the test started, do we have notification that the test itself has timed out -> test fault
-        - Do we have keywords involving waiting for specific action, callback, request -> test fault
-        - The testing hasn't started yet -> infra fault
-        - Error contains messages about the runner itself timing out -> infra fault
-        - Messages about waiting for resources to set up the runner -> infra fault
+    * Apply infra-timeouts's origin tests. If test-origin, continue below:
+    * Do we have keywords involving waiting for specific action, callback, request:
+        - Check build configuration according to the config-error label rules
+        if not applies:
+        - Check whether necessary infrastrucure was available - if not -> infra fault
+        if not applies:
+        - apply flaky-test
+
 
 3. Logs shows that a test is failing due to certain input is not in expected order.
     - If the code logic itself supports different order or agnostic to it - apply flaky-test, otherwise check for real-regression label conditions.
-4. Logs shows that a test is failing due to a certain unmet condition - if the code logic supports working with/without this condition - apply flaky test. Otherwise check for:
+4. Logs shows that a test is failing due to a certain unmet condition, check for:
     - If the condition relate to library/tool use - check for env-or-dependency label conditions.
-    - If the condition relates to certain unset flag - check for config-error conditions.
+    - If the condition relates to certain unset flag or wrong test parameter - check for config-error conditions.
     - If the condition is related to missing infrastructure - check for config-error conditions.
     - If the condition is related to the code of the test itself and the diff summary shows changes related to the code of the test - check for real-regression.
-    - none of the above - apply unknown.
+    - If none of the above and the condition is unrelated to the core code logic, apply flaky-test.
     
 
 
@@ -98,7 +100,7 @@ diff summary shows that package 'x' was upgraded to a newer version but there ar
 It's possible that changing the libraries may produce different logical result, but we'll consider this as a real-regression label rather than dependency-or-env as the root cause is related to the core logic of what we're testing
 
 ### Nearest-neighbor distinction
-- config-error: configuration often dictate what environment or libraries we need to setup for the runner, a wrong configuration can lead to a wrong build. To distinguish - look for diff summary or log for config changes to control the environment - if found, and relate to the error we see, treat as config error.
+- config-error: configuration often dictate what environment or libraries we need to setup for the runner, a wrong configuration can lead to a wrong build. To distinguish - see rule 3 above for the exact test.
 
 ## real-regression
 
@@ -126,7 +128,55 @@ A timeout error in a test, but caused due to real regression because the call to
 - flaky-test: when assertion fails, we need to consider carefully on whether the test is faulty or it's a result of a
   change we introduced. A lot of time, historic runs help distinguish this (test that always succeeds suddenly fails), but, even without historic data, we should assume that if we introduced a change that logically affects the test, we should first check for regression
 
+
+## infra-timeout
+### Definition
+The build fails due to a problem in the infrastructure of the run itself, unrelated to the code in the package being built. The problem manifests as a timeout error when trying to initialize or access some resource needed for the build or when a test attempts to access an external resource that should exists but times-out.
+
+### Decision rules
+1. The log excerpt shows timeout errors, that origin from components that are related to the run itself, not from tests that test the code. To distinguish between test timeout and infra timeout - look for these signs by order of relevance:
+    - Messages about waiting for resources to set up the runner -> infra fault
+    - Error contains messages about the runner itself timing out -> infra fault
+    - The testing hasn't started yet -> infra fault
+    - Has the test started, do we have notification that the test is waiting for a specific action, callback, request -> check for flaky-test rule 2
+    - If none of the above signs are present in the log -> cannot determine origin from a single run -> apply unknown
+
+### Clear case example
+Timeout error when trying to connect to repo to checkout the code - infra-timeout
+
+### Edge case example
+Timeout error accessing a db - preflight check in the runner says db unavailable and times out, the code itself trying to access the resource
+and times out. First we check configuration, it exists and correct, so moving to check the conditions for the infra-timeout - preflight says db should be available, but it times out, no need to continue checking - apply infra-timeout. If preflight check for a db shows healthy, but code reaches timeout accessing db -> apply flaky-test.
+
+### Nearest-neighbor distinction
+- flaky-test: timeout errors coming from flaky-test needs to be distinguished from infra timeouts. They will both contain keywords related to timeout, but we need to consider the origin of the timeout itself.
+
+## config-error
+### Definition
+A build fails due to wrong or missing configuration. Configuration errors can manifest in different forms:
+- Wrong/missing environment
+- Wrong/missing paramenters
+- Wrong/missing credentials
+- Wrong/missing resources
+
+### Decision rules
+The configuration must be present in some form - either in logs or as additional parameter, if it's absent, skip to other labels, as we have
+no way to verify that. Then check:
+1. Log complains about wrong missing/wrong environment - check dependency-or-env label rule 3 to deterimine label.
+2. Log complains about test asseration caused by wrong test parameters. Check the test configuration and is it matching the intented the build setup. If not apply config-error
+3. Log complains about wrong credentials - check configuration on what resources with credentials are needed and whether we have the proper configuration to pass them on. If not - apply config-error.
+4. If log complains about missing resource, and it doesn't fall under infra-timeout rules, check the configuration on whether we have a list of resources that should be available and what the runner expects. If there's a mismatch - apply config-error. If they match - apply unknown.
+
+### Clear case example
+Configuration logs exists and show entries for windows and linux setups. The configuration shows that the build is running on windows machine, but the code runner envirnment itself is configured for a linux machine. Log complain about missing tools in environment -> rule 1 of config error shows to go to dependency or env rule 3 -> the configuration exists and there's a mismatch -> config-error
+
+### Edge case example
+Configuration logs exists and show entries for 2 different build setups - A and B. Setup A test config parameters is different from setup B. Setup B is chosen in configuration, while the test setup is chosen for A. Test fail on assertions. rule 2 of config-error applies - apply config-error. If we're checking from the flaky-test path rule 4 -> will lead to config-error
+
+### Nearest-neighbor distinction
+- flaky-test: config errors can manifest in tests failing seemingly randomly. Problem accessing resources, wrong test parameters - can originate from configuration problem. Need to check first configuration is correct and matching.
+
+
 ## Known Gaps
-- External resource unreachable, single-run only: deferred from flaky-test, needs an explicit home when writing config-error / real-regression.
 - Configuration values, run parameters and environment changes can happen between runs. For a single run, we don't have historic data. If available, need to compare between successful and failed runs.
 - Currently, the classifier doesn't receive the workflow yaml or build metadata directly, which can be a problem when classifying build config errors
