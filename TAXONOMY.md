@@ -42,7 +42,7 @@ run, simply because they depend on: timing, not guaranteed order, or specific co
     - If the condition relates to certain unset flag or wrong test parameter - check for config-error conditions.
     - If the condition is related to missing infrastructure - check for config-error conditions.
     - If the condition is related to the code of the test itself and the diff summary shows changes related to the code of the test - check for real-regression.
-    - If none of the above and the condition is unrelated to the core code logic, apply flaky-test.
+    - If none of the above apply unknown.
     
 
 
@@ -176,6 +176,26 @@ Configuration logs exists and show entries for 2 different build setups - A and 
 ### Nearest-neighbor distinction
 - flaky-test: config errors can manifest in tests failing seemingly randomly. Problem accessing resources, wrong test parameters - can originate from configuration problem. Need to check first configuration is correct and matching.
 
+## unknown
+### Definition
+The build fails with ambiguity, we cannot determine the exact label fit after investigating all other labels and reasoning why they don't apply.
+
+1. Apply unknown only if the other five lable's rules were checked and none resolves the case and you canot commit to them with reasonable confidence, provide evidence to your decision.  
+OR
+2. one of the lable's rules explicitly stated to mark as unknown. 
+
+When setting as unknown - provide evidence to reasoning - if debating between 2 labels, document in the notes the ones that came closest and why.
+
+### Case example
+`Test run interrupted: runner lost connection to Docker daemon\nError response from daemon: dial unix docker.sock: connect: no such file or directory`
+Genuinely unsure if this is infra or something else entirely (runner-level Docker failure). Diff is trivial so not a regression. Punting to unknown rather than forcing a bucket
+
+OR
+`E   elasticsearch.exceptions.ConnectionTimeout: Connection timed out\nE   TransportError(N/A, 'timeout')`
+Could be infra-timeout (ES cluster slow) or real-regression (new fields causing slow queries) - genuinely can't tell without more info. Leaving as unknown rather than guessing.
+
+### Nearest-neighbor distinction
+Doesn't really have any - by definition the errors are when either not enough information or there's ambuiguity regarding what label should be applied.
 
 ## Known Gaps
 - Configuration values, run parameters and environment changes can happen between runs. For a single run, we don't have historic data. If available, need to compare between successful and failed runs.
