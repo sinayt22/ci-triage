@@ -91,7 +91,7 @@ def label_candidates(candidates_path: Path, out_path: Path, limit: int | None) -
 
     print(f"{len(candidates)} candidates total, {len(done)} already reviewd, {len(todo)} remaining.")
     if limit:
-        todo[:limit]
+        todo = todo[:limit]
         print(f"Limiting this session to {len(todo)}")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
