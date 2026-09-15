@@ -109,12 +109,15 @@ def label_candidates(candidates_path: Path, out_path: Path, limit: int | None) -
             print(" skipped.")
             continue
         notes = prompt_notes(label)
-
+        run = c.get("run", {})
+        steps = c.get("", {})
         record = {
             "id": c["id"],
             "repo": c.get("repo"),
-            "log_excerpt": c.get("log_excerpt"),
+            "log_excerpt": c.get("log_excerpt", {}).get("excerpt"),
             "diff_summary": c.get("diff_summary"),
+            "failed_step_name": steps.get("failed_step_name"),
+            "workflow_config": c.get(""),
             "label": label,
             "notes": notes,
         }

@@ -84,14 +84,69 @@ def list_failed_jobs(repo: str, run_id:int, session: requests.Session):
     jobs = response.json().get("jobs", [])
     return [j for j in jobs if j.get("conclusion") == "failure"]
 
-def get_job_log_excerpt(repo:str, job_id:int, session: requests.Session, max_lines:int = 150) -> str | None:
-    response = session.get(f"{API}/repos/{repo}/actions/jobs/{job_id}/logs")
+def summarize_steps(job: dict) -> dict:
+    """Extract step-level outcome from a job paylod.
+    
+    GitHub returns steps[] on the jobs endpoint. Each has name/number/conclusion
+    /started_at/completed_at. The name of the failing step is
+    the chepest strong signal we have about where in the job it broke
+    (checkout vs setup vs build vs test)
+    """
+
+    steps = job.get("steps") or []
+    failed = [s for s in steps if s.get("conclusion") == "failure"]
+    first_failed = failed[0] if failed else None
+    return {
+        "failed_step_name": first_failed.get("name") if first_failed else None,
+        "failed_step_number": first_failed.get("number") if first_failed else None,
+        "steps": [
+            {
+                "name": s.get("name"),
+                "number": s.get("number"),
+                "conclusion": s.get("conclusion"),
+                "started_at": s.get("started_at"),
+                "completed_at": s.get("completed_at")
+            }
+            for s in steps
+        ],
+    }
+
+def summarize_run(run: dict) -> dict:
+    return {
+        "run_id": run.get("id"),
+        "workflow_name": run.get("name"),
+        "workflow_path": run.get("path"),
+        "run_attempt": run.get("run_attempt"),
+        "event": run.get("event"),
+        "head_branch": run.get("head_branch"),
+        "head_sha": run.get("head_sha"),
+        "run_url": run.get("html_url")
+    }
+
+
+def get_job_log_excerpt_summary(repo:str, job_id:int, session: requests.Session, out_path:Path, 
+                                max_lines:int = 150) -> str | None:
+    
+    url = f"{API}/repos/{repo}/actions/jobs/{job_id}/logs"
+    response = session.get(url)
     if response.status_code != 200:
         return None
 
+    # save the full log for future reference if needed
+    logs_dir = out_path.parent / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    file_path = logs_dir / f"{job_id}.txt"
+    file_path.write_text(response.text)
+
     lines = [TIMESTAMP_PREFIX.sub("", line) for line in response.text.splitlines()]
     tail = lines[-max_lines:]
-    return "\n".join(tail).strip()
+    log = "\n".join(tail).strip()
+
+    return {
+        "excerpt": log,
+        "path": str(file_path.relative_to(out_path.parent)),
+        "excerpt_strategy": f"tail-{max_lines}"
+    }
 
 def get_diff_summary(repo:str, run:dict, session:requests.Session, max_files:int = 5) -> str | None:
     prs = run.get("pull_requests") or []
@@ -117,6 +172,33 @@ def get_diff_summary(repo:str, run:dict, session:requests.Session, max_files:int
         summary += f", + {len(files) - max_files} more"
     return summary
 
+def get_workflow_config(repo: str, run: dict, session: requests.Session,
+                        max_chars:int = 6000) -> str | None:
+    """Fetch the workflow YAML as it existed at the failing commit.
+    run['path'] is the workflow file, run['head_sha'] pins it to the commit
+    under test - so we see the config that actually produced this failure,
+    not whatever main looks like today.
+    """
+
+    path = run.get("path")
+    ref = run.get("head_sha")
+    if not (path and ref):
+        return None
+    response = session.get(
+        f"{API}/repos/{repo}/contents/{path}",
+        params={"ref": ref},
+        headers={"Accept": "application/vnd.github.raw"}
+    )
+
+    if response.status_code != 200:
+        return None
+
+    text = response.text
+    if len(text) > max_chars:
+        text = text[:max_chars] + f"\n... (truncated, {len(text)} chars total)"
+    return text
+
+
 def fetch(repo: str, token:str, max_cases:int, out_path:Path, since: str = None):
     session = make_session(token)
 
@@ -131,6 +213,7 @@ def fetch(repo: str, token:str, max_cases:int, out_path:Path, since: str = None)
             break
 
         diff_summary = get_diff_summary(repo, run, session)
+        workflow = get_workflow_config(repo, run, session)
 
         failed_jobs = list_failed_jobs(repo, run["id"], session)
         if not failed_jobs:
@@ -139,21 +222,26 @@ def fetch(repo: str, token:str, max_cases:int, out_path:Path, since: str = None)
         for job in failed_jobs:
             if len(candidates) >= max_cases:
                 break
-            excerpt = get_job_log_excerpt(repo, job["id"], session)
-            if not excerpt:
+            excerpt_summary = get_job_log_excerpt_summary(repo, job["id"], session, out_path)
+            if not excerpt_summary or not excerpt_summary.get("excerpt"):
                 continue
-
+            
             candidates.append({
                 "id": f"{repo.replace('/', '-')}-run{run["id"]}-job{job["id"]}",
                 "repo": repo,
-                "log_excerpt": excerpt,
+                "run": summarize_run(run),
+                "log_excerpt": excerpt_summary,
                 "diff_summary": diff_summary,
-                "label": None,
-                "heuristic_hint": heuristic_hint(excerpt),
-                "notes": "",
                 "source_url": run.get("html_url"),
                 "job_name": job.get("name"),
-                "created_at": run.get("created_at")
+                "steps": summarize_steps(job),
+                "url": job.get("html_url"),
+                "created_at": run.get("created_at"),
+                "triage": {
+                    "label": None,
+                    "notes" : "",
+                    "heuristic_hint": heuristic_hint(excerpt_summary.get("excerpt"))
+                }
             })
             print(f"    candidate added for run: {run["id"]}")
             print(f"    ... {len(candidates)}/{max_cases} candidates collected", end="\r")

@@ -15,5 +15,10 @@ class EvalCase(BaseModel):
     repo: str
     log_excerpt: str # the input your system sees
     diff_summary: str | None
+    failed_step_name: str | None = None
+    workflow_config: str | None = None 
+    run_attempt: int | None = None
+    event: str | None = None
+    head_branch: str | None = None
     label: Label # ground-truth
     notes: str = "" # why labelled it this way
