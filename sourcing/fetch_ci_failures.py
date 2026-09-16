@@ -15,9 +15,13 @@ import os
 import re
 import time
 from pathlib import Path
+import sys
 
 import requests
 from dotenv import load_dotenv
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from schema import *
 
 load_dotenv()
 
@@ -96,36 +100,38 @@ def summarize_steps(job: dict) -> dict:
     steps = job.get("steps") or []
     failed = [s for s in steps if s.get("conclusion") == "failure"]
     first_failed = failed[0] if failed else None
-    return {
-        "failed_step_name": first_failed.get("name") if first_failed else None,
-        "failed_step_number": first_failed.get("number") if first_failed else None,
-        "steps": [
-            {
-                "name": s.get("name"),
-                "number": s.get("number"),
-                "conclusion": s.get("conclusion"),
-                "started_at": s.get("started_at"),
-                "completed_at": s.get("completed_at")
-            }
-            for s in steps
-        ],
-    }
+    steps_models = [
+        StepSummary(
+        name = s.get("name"),
+        number = s.get("number"),
+        conclusion = s.get("conclusion"),
+        started_at = s.get("started_at"),
+        completed_at = s.get("completed_at"))
+        for s in steps
+    ]
+    return StepsInfo(
+        failed_step_name = first_failed.get("name") if first_failed else None,
+        failed_step_number = first_failed.get("number") if first_failed else None,
+        steps = steps_models
+    )
+        
 
-def summarize_run(run: dict) -> dict:
-    return {
-        "run_id": run.get("id"),
-        "workflow_name": run.get("name"),
-        "workflow_path": run.get("path"),
-        "run_attempt": run.get("run_attempt"),
-        "event": run.get("event"),
-        "head_branch": run.get("head_branch"),
-        "head_sha": run.get("head_sha"),
-        "run_url": run.get("html_url")
-    }
+def summarize_run(run: dict) -> RunInfo:
+    return RunInfo(
+        run_id = run.get("id"),
+        run_attempt= run.get("run_attempt"),
+        event = run.get("event"),
+        head_branch = run.get("head_branch"),
+        head_sha = run.get("head_sha"),
+        run_url = run.get("html_url"),
+        workflow_name = run.get("name"),
+        workflow_path = run.get("path"),
+        created_at = run.get("created_at")
+    )
 
 
-def get_job_log_excerpt_summary(repo:str, job_id:int, session: requests.Session, out_path:Path, 
-                                max_lines:int = 150) -> str | None:
+def get_job_log(repo:str, job_id:int, session: requests.Session, out_path:Path, 
+                                max_lines:int = 150) -> LogInfo | None:
     
     url = f"{API}/repos/{repo}/actions/jobs/{job_id}/logs"
     response = session.get(url)
@@ -142,13 +148,20 @@ def get_job_log_excerpt_summary(repo:str, job_id:int, session: requests.Session,
     tail = lines[-max_lines:]
     log = "\n".join(tail).strip()
 
-    return {
-        "excerpt": log,
-        "path": str(file_path.relative_to(out_path.parent)),
-        "excerpt_strategy": f"tail-{max_lines}"
-    }
+    return LogInfo(
+        excerpt = log,
+        path = str(file_path.relative_to(out_path.parent)),
+        excerpt_strategy = f"tail-{max_lines}"
+    )
 
-def get_diff_summary(repo:str, run:dict, session:requests.Session, max_files:int = 5) -> str | None:
+def get_diff_summary(repo:str, run:dict, session:requests.Session, 
+                     max_files:int = 5) -> DiffInfo:
+    """Summarize the code changes under test
+    
+    Status distinguishes 'there was genuinely no diff' from 
+    'we failed to fetch one'
+    """
+
     prs = run.get("pull_requests") or []
     if prs:
         pr_number = prs[0]["number"]
@@ -156,21 +169,22 @@ def get_diff_summary(repo:str, run:dict, session:requests.Session, max_files:int
     else:
         sha = run.get("head_sha")
         if not sha:
-            return None
+            return DiffInfo(summary=None, status=DiffStatus.NO_PR_NO_SHA)
         response = session.get(f"{API}/repos/{repo}/commits/{sha}")
 
     if response.status_code != 200:
-        return None
+        return DiffInfo(summary=None, status=DiffStatus.API_ERROR)
 
     files = response.json() if prs else response.json().get("files", [])
     if not files:
-        return None
+        return DiffInfo(summary=None, status=DiffStatus.NO_FILES)
 
-    parts = [f"{f['filename']} +{f.get('additions', 0)}/-{f.get('deletions', 0)}" for f in files]
+    shown = files[:max_files]
+    parts = [f"{f['filename']} +{f.get('additions', 0)}/-{f.get('deletions', 0)}" for f in shown]
     summary = f"{len(files)} files(s) changed: " + ", ".join(parts)
     if len(files) > max_files:
         summary += f", + {len(files) - max_files} more"
-    return summary
+    return DiffInfo(summary=summary, status=DiffStatus.OK)
 
 def get_workflow_config(repo: str, run: dict, session: requests.Session,
                         max_chars:int = 6000) -> str | None:
@@ -212,46 +226,49 @@ def fetch(repo: str, token:str, max_cases:int, out_path:Path, since: str = None)
         if len(candidates) >= max_cases:
             break
 
-        diff_summary = get_diff_summary(repo, run, session)
-        workflow = get_workflow_config(repo, run, session)
+        diff = get_diff_summary(repo, run, session)
+        workflow_config = get_workflow_config(repo, run, session)
 
         failed_jobs = list_failed_jobs(repo, run["id"], session)
         if not failed_jobs:
             continue
 
+        run_info = summarize_run(run)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
         for job in failed_jobs:
             if len(candidates) >= max_cases:
                 break
-            excerpt_summary = get_job_log_excerpt_summary(repo, job["id"], session, out_path)
-            if not excerpt_summary or not excerpt_summary.get("excerpt"):
+            job_log = get_job_log(repo, job["id"], session, out_path)
+            if not job_log or not job_log.excerpt:
                 continue
-            
-            candidates.append({
-                "id": f"{repo.replace('/', '-')}-run{run["id"]}-job{job["id"]}",
-                "repo": repo,
-                "run": summarize_run(run),
-                "log_excerpt": excerpt_summary,
-                "diff_summary": diff_summary,
-                "source_url": run.get("html_url"),
-                "job_name": job.get("name"),
-                "steps": summarize_steps(job),
-                "url": job.get("html_url"),
-                "created_at": run.get("created_at"),
-                "triage": {
+
+            steps = summarize_steps(job)
+
+            candidates.append(Candidate(
+                id = f"{repo.replace('/', '-')}-run{run_info.run_id}-job{job["id"]}",
+                repo = repo,
+                job_name = job.get("name"),
+                job_url = job.get("html_url"),
+                created_at = run_info.created_at,
+                run = run_info,
+                log = job_log,
+                steps = steps,
+                diff = diff,
+                workflow_config = workflow_config,
+                triage = {
                     "label": None,
                     "notes" : "",
-                    "heuristic_hint": heuristic_hint(excerpt_summary.get("excerpt"))
+                    "heuristic_hint": heuristic_hint(job_log.excerpt)
                 }
-            })
+            ))
             print(f"    candidate added for run: {run["id"]}")
             print(f"    ... {len(candidates)}/{max_cases} candidates collected", end="\r")
             time.sleep(0.2) # be polite to the API
 
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w") as f:
-        for c in candidates:
-            f.write(json.dumps(c) + "\n")
+            with open(out_path, "a") as f:
+                for c in candidates:
+                    f.write(c.model_dump_json() + "\n")
 
     print(f"\nWrote {len(candidates)} unreviewed candidate to {out_path}")
 

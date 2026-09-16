@@ -22,8 +22,11 @@ import sys
 from pathlib import Path
 from typing import get_args
 
+
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from schema import EvalCase, Label
+import schema
+from schema import Candidate, EvalCase, Label, candidate_to_eval_case
 
 LABELS = list(get_args(Label))
 
@@ -37,19 +40,28 @@ def load_jsonl(path: Path) -> list[dict]:
 def already_reviewed_ids(out_path: Path) -> set:
     return {row["id"] for row in load_jsonl(out_path)}
 
-def print_candidate(c: dict, index: int, total: int) -> None:
+def print_candidate(c: Candidate, index: int, total: int) -> None:
     print("\n" + "=" * 78)
     print(f"[{index}]/{total}] {c['id']}")
-    print(f"repo:   {c.get('repo')}")
-    print(f"source: {c.get('source_url')}")
+    print(f"repo:   {c.repo}")
+    print(f"source: {c.run.run_url}")
+    print("-" * 78)
+    print(f"FAILED STEP: {c.steps.failed_step_name}")
+    print("-" * 78)
+    print(f"EVENT: {c.run.event}")
+    print("-" * 78)
+    print(f"RUN ATTEMPT: {c.run.run_attempt}")
+    print("-" * 78)
+    print(f"WORKFLOW CONFIG: {c.workflow_config}")
     print("-" * 78)
     print("LOG EXCERPT:")
-    print(c.get("log_excerpt") or "(none)")
+    print(c.log.excerpt or "(none)")
     print("-" * 78)
     print("DIFF SUMMARY:")
-    print(c.get("diff_summary") or "(none)")
+    print(c.diff.summary or "(none)")
     print("-" * 78)
-    hint = c.get("heuristic_hint")
+
+    hint = c.triage.heuristic_hint
     if hint:
         print(f"heuristic_hint (Unverified): {hint}")
     print("=" * 78)
@@ -98,7 +110,13 @@ def label_candidates(candidates_path: Path, out_path: Path, limit: int | None) -
     saved_count = 0
 
     for i, c in enumerate(todo, start=1):
-        print_candidate(c, i, len(todo))
+        try:
+            candidate = schema.Candidate(**c)
+        except Exception as e:
+            print(f" ! record failed schema validation, NOT saved: {e}")
+            continue
+
+        print_candidate(candidate, i, len(todo))
         label = prompt_label()
 
         if label == "QUIT":
@@ -109,27 +127,12 @@ def label_candidates(candidates_path: Path, out_path: Path, limit: int | None) -
             print(" skipped.")
             continue
         notes = prompt_notes(label)
-        run = c.get("run", {})
-        steps = c.get("", {})
-        record = {
-            "id": c["id"],
-            "repo": c.get("repo"),
-            "log_excerpt": c.get("log_excerpt", {}).get("excerpt"),
-            "diff_summary": c.get("diff_summary"),
-            "failed_step_name": steps.get("failed_step_name"),
-            "workflow_config": c.get(""),
-            "label": label,
-            "notes": notes,
-        }
 
-        try:
-            EvalCase(**record)
-        except Exception as e:
-            print(f" ! record failed schema validation, NOT saved: {e}")
-            continue
+
+        record = candidate_to_eval_case(c=candidate, label=label, notes=notes)
 
         with open(out_path, "a") as f:
-            f.write(json.dumps(record) + "\n")
+            f.write(record.model_dump_json() + "\n")
         saved_count += 1
         print(f" -> saved as {label}")
 
