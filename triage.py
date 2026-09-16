@@ -1,13 +1,17 @@
 import json
 from typing import get_args
 
-from schema import Label
+from schema import EvalCase, Label
 from providers import get_provider
 from errors import ClassificationParseError
 
 SYSTEM_PROMPT = """
 You are a CI failure triage assistant. Classify why a CI run failed
-based on the log excerpt and, if provided, a summary of the code diff in that PR.
+based on the log excerpt and, if provided:
+- a summary of the code diff in that PR.
+- the workflow config to determine what was the configuration.
+- the failed step.
+- the trigger: the event, the branch, the attempt number.
 
 Choose exactly one lable from this set:
 - flaky-test: the failure looks unrelated to the diff and non-deterministic (timing, ordering, external falkiness)
@@ -30,13 +34,24 @@ def _get_provider():
         _provider = get_provider()
     return _provider
 
-def classify(log_excerpt: str, diff_summary: str | None = None) -> str:
+def render_case(case: EvalCase) -> str:
+    """Render the fields the classifier is allowed to see.
+    
+    Absend fields say so explicitly. 
+    """
+
+    return "\n\n".join([
+        f"FAILED STEP:\n{case.failed_step_name or '(not provided)'}",
+        f"TRIGGER: event={case.event or '?'} attempt={case.run_attempt or '?'} branch={case.head_branch or '?'}",
+        f"DIFF SUMMARY:\n{case.diff_summary or ('not provided')}",
+        f"WORKFLOW CONFIG:\n{case.workflow_config or ('not provided')}",
+        f"LOG EXCERPT:\n{case.log_excerpt}"
+    ])
+
+
+def classify(case: EvalCase) -> str:
     provider = _get_provider()
-    user_content = (
-        f"LOG EXCERPT:\n{log_excerpt}\n\n"
-        f"DIFF SUMMARY:\n{diff_summary or '(no diff provided)'}"
-    )
-    raw = provider.complete(SYSTEM_PROMPT, user_content).strip()
+    raw = provider.complete(SYSTEM_PROMPT, render_case(case)).strip()
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as e:

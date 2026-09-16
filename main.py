@@ -12,7 +12,7 @@ def run(cases):
     results = []
     for c in cases:
         try:
-            pred = classify(c.log_excerpt, c.diff_summary)
+            pred = classify(c)
         except ClassificationParseError:
             pred = "PARSE_ERROR"
         results.append({"id": c.id, "expected": c.label,
