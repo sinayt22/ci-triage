@@ -62,6 +62,8 @@ def list_failed_runs(repo:str, session: requests.Session, max_runs:int, since:st
     if since:
         params["created"] = f">={since}"
     while len(runs) < max_runs:
+        params["page"] = page
+        page += 1
         response = session.get(
             f"{API}/repos/{repo}/actions/runs",
             params=params
@@ -73,7 +75,6 @@ def list_failed_runs(repo:str, session: requests.Session, max_runs:int, since:st
         if not batch:
             break
         runs.extend(batch)
-        page += 1
         if len(batch) < 100:
             break
 
@@ -139,7 +140,7 @@ def get_job_log(repo:str, job_id:int, session: requests.Session, out_path:Path,
         return None
 
     # save the full log for future reference if needed
-    logs_dir = out_path.parent / "logs"
+    logs_dir = out_path.parent / "logs" / repo.split('/')[-1]
     logs_dir.mkdir(parents=True, exist_ok=True)
     file_path = logs_dir / f"{job_id}.txt"
     file_path.write_text(response.text)
@@ -213,7 +214,7 @@ def get_workflow_config(repo: str, run: dict, session: requests.Session,
     return text
 
 
-def fetch(repo: str, token:str, max_cases:int, out_path:Path, since: str = None):
+def fetch(repo: str, token:str, max_cases:int, max_per_run: 2, out_path:Path, since: str = None):
     session = make_session(token)
 
     print(f"Listing failed runs for {repo} ... ")
@@ -221,7 +222,9 @@ def fetch(repo: str, token:str, max_cases:int, out_path:Path, since: str = None)
     print(f"    Found {len(runs)} failed run(s) to inspect")
 
     candidates = []
-    
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    seen_ids = set()
+
     for run in runs:
         if len(candidates) >= max_cases:
             break
@@ -234,19 +237,28 @@ def fetch(repo: str, token:str, max_cases:int, out_path:Path, since: str = None)
             continue
 
         run_info = summarize_run(run)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
 
+        per_run = 0
         for job in failed_jobs:
+            if per_run >= max_per_run:
+                break
+            per_run += 1
+
+            candidate_id = f"{repo.replace('/', '-')}-run{run_info.run_id}-job{job["id"]}"
+            if candidate_id in seen_ids:
+                continue
+            seen_ids.add(candidate_id)
+
             if len(candidates) >= max_cases:
                 break
             job_log = get_job_log(repo, job["id"], session, out_path)
             if not job_log or not job_log.excerpt:
                 continue
-
+            
             steps = summarize_steps(job)
 
-            candidates.append(Candidate(
-                id = f"{repo.replace('/', '-')}-run{run_info.run_id}-job{job["id"]}",
+            c = Candidate(
+                id = candidate_id,
                 repo = repo,
                 job_name = job.get("name"),
                 job_url = job.get("html_url"),
@@ -261,14 +273,14 @@ def fetch(repo: str, token:str, max_cases:int, out_path:Path, since: str = None)
                     "notes" : "",
                     "heuristic_hint": heuristic_hint(job_log.excerpt)
                 }
-            ))
+            )
             print(f"    candidate added for run: {run["id"]}")
-            print(f"    ... {len(candidates)}/{max_cases} candidates collected", end="\r")
+            print(f"    ... {len(candidates)}/{max_cases} candidates collected for this fetch", end="\n")
             time.sleep(0.2) # be polite to the API
 
+            candidates.append(c)
             with open(out_path, "a") as f:
-                for c in candidates:
-                    f.write(c.model_dump_json() + "\n")
+                f.write(c.model_dump_json() + "\n")
 
     print(f"\nWrote {len(candidates)} unreviewed candidate to {out_path}")
 
@@ -278,6 +290,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", default="pandas-dev/pandas")
     parser.add_argument("--max-cases", type=int, default=50)
+    parser.add_argument("--max-cases-per-run", type=int, default=2)
     parser.add_argument("--out", default=None)
     parser.add_argument("--since", default=datetime.now() - timedelta(days=90))
     args = parser.parse_args()
@@ -286,9 +299,12 @@ if __name__ == "__main__":
     if not token:
         raise SystemExit("GITHUB_TOKEN not set - export it or add it to evals/.env")
 
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out = (
         Path(args.out) if args.out
-        else Path(__file__).parent / "candidates" / f"{args.repo.replace('/','-')}_candidates.jsonl"
+        else Path(__file__).parent / "candidates" / f"{args.repo.replace('/','-')}_candidates_{stamp}.jsonl"
     )
-    fetch(args.repo, token, args.max_cases, out, str(args.since))
+
+
+    fetch(args.repo, token, args.max_cases, args.max_cases_per_run, out, str(args.since))
         
