@@ -42,7 +42,7 @@ def already_reviewed_ids(out_path: Path) -> set:
 
 def print_candidate(c: Candidate, index: int, total: int) -> None:
     print("\n" + "=" * 78)
-    print(f"[{index}]/{total}] {c['id']}")
+    print(f"[{index}]/{total}] {c.id}")
     print(f"repo:   {c.repo}")
     print(f"source: {c.run.run_url}")
     print("-" * 78)
