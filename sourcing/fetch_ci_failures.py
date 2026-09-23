@@ -140,7 +140,7 @@ def get_job_log(repo:str, job_id:int, session: requests.Session, out_path:Path,
         return None
 
     # save the full log for future reference if needed
-    logs_dir = out_path.parent / "logs" / repo.split('/')[-1]
+    logs_dir = out_path.parent / "logs" / repo.replace('/', '-')
     logs_dir.mkdir(parents=True, exist_ok=True)
     file_path = logs_dir / f"{job_id}.txt"
     file_path.write_text(response.text)
