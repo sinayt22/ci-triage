@@ -242,7 +242,6 @@ def fetch(repo: str, token:str, max_cases:int, out_path:Path, max_per_run: int =
         for job in failed_jobs:
             if per_run >= max_per_run:
                 break
-            per_run += 1
 
             candidate_id = f"{repo.replace('/', '-')}-run{run_info.run_id}-job{job["id"]}"
             if candidate_id in seen_ids:
@@ -281,6 +280,7 @@ def fetch(repo: str, token:str, max_cases:int, out_path:Path, max_per_run: int =
             candidates.append(c)
             with open(out_path, "a") as f:
                 f.write(c.model_dump_json() + "\n")
+            per_run += 1
 
     print(f"\nWrote {len(candidates)} unreviewed candidate to {out_path}")
 
