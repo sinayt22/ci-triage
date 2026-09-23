@@ -214,7 +214,7 @@ def get_workflow_config(repo: str, run: dict, session: requests.Session,
     return text
 
 
-def fetch(repo: str, token:str, max_cases:int, max_per_run: 2, out_path:Path, since: str = None):
+def fetch(repo: str, token:str, max_cases:int, out_path:Path, max_per_run: int = 2, since: str = None):
     session = make_session(token)
 
     print(f"Listing failed runs for {repo} ... ")
@@ -306,5 +306,5 @@ if __name__ == "__main__":
     )
 
 
-    fetch(args.repo, token, args.max_cases, args.max_cases_per_run, out, str(args.since))
+    fetch(args.repo, token, args.max_cases, out, args.max_cases_per_run, str(args.since))
         
