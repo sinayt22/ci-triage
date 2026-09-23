@@ -43,8 +43,8 @@ def render_case(case: EvalCase) -> str:
     return "\n\n".join([
         f"FAILED STEP:\n{case.failed_step_name or '(not provided)'}",
         f"TRIGGER: event={case.event or '?'} attempt={case.run_attempt or '?'} branch={case.head_branch or '?'}",
-        f"DIFF SUMMARY:\n{case.diff_summary or ('not provided')}",
-        f"WORKFLOW CONFIG:\n{case.workflow_config or ('not provided')}",
+        f"DIFF SUMMARY:\n{case.diff_summary or '(not provided)'}",
+        f"WORKFLOW CONFIG:\n{case.workflow_config or '(not provided)'}",
         f"LOG EXCERPT:\n{case.log_excerpt}"
     ])
 

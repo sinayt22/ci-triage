@@ -9,7 +9,7 @@ rules
 Usage:
     python3 labeling/label_candidates.py \
     --candidates sourcing/candidates/<lib_name>_candidates.jsonl \
-    --out data/labeled.jsonl
+    --out-path data/labeled.jsonl
     --limit 20
 
 Resumable: on startup, any id already present in --out is skipped, so you can restart
@@ -52,13 +52,14 @@ def print_candidate(c: Candidate, index: int, total: int) -> None:
     print("-" * 78)
     print(f"RUN ATTEMPT: {c.run.run_attempt}")
     print("-" * 78)
+    workflow_config = c.workflow_config if len(c.workflow_config) < 1024 else f"{c.workflow_config} ...[[TRUNCATED]] "
     print(f"WORKFLOW CONFIG: {c.workflow_config}")
     print("-" * 78)
     print("LOG EXCERPT:")
-    print(c.log.excerpt or "(none)")
+    print(c.log.excerpt or "(not provided)")
     print("-" * 78)
     print("DIFF SUMMARY:")
-    print(c.diff.summary or "(none)")
+    print(c.diff.summary or "(not provided )")
     print("-" * 78)
 
     hint = c.triage.heuristic_hint
