@@ -25,20 +25,13 @@ from typing import get_args
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from labeling import store
 import schema
-from schema import Candidate, EvalCase, Label, candidate_to_eval_case
+from schema import Candidate, Label, candidate_to_eval_case
 
 LABELS = list(get_args(Label))
+QUIT = "QUIT"
 
-def load_jsonl(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    with open(path) as f:
-        return [json.loads(line) for line in f if line.strip()]
-
-
-def already_reviewed_ids(out_path: Path) -> set:
-    return {row["id"] for row in load_jsonl(out_path)}
 
 def print_candidate(c: Candidate, index: int, total: int) -> None:
     print("\n" + "=" * 78)
@@ -53,10 +46,10 @@ def print_candidate(c: Candidate, index: int, total: int) -> None:
     print(f"RUN ATTEMPT: {c.run.run_attempt}")
     print("-" * 78)
     workflow_config = c.workflow_config if len(c.workflow_config) < 1024 else f"{c.workflow_config} ...[[TRUNCATED]] "
-    print(f"WORKFLOW CONFIG: {c.workflow_config}")
+    print(f"WORKFLOW CONFIG: {_truncate(c.workflow_config, 1024)}")
     print("-" * 78)
     print("LOG EXCERPT:")
-    print(c.log.excerpt or "(not provided)")
+    print(_truncate(c.log.excerpt, 8192) or "(not provided)")
     print("-" * 78)
     print("DIFF SUMMARY:")
     print(c.diff.summary or "(not provided )")
@@ -67,17 +60,27 @@ def print_candidate(c: Candidate, index: int, total: int) -> None:
         print(f"heuristic_hint (Unverified): {hint}")
     print("=" * 78)
 
-def prompt_label() -> str | None:
+def _truncate(text: str | None, limit: int) -> str:
+    """Cap a text field so the text won't scroll the rest of the screen"""
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}\n...[[TRUNCATED {len(text) - limit:,} more chars]]"
+
+def prompt_label(existing_label: str | None) -> str | None:
     print("\nLabel:")
     for i, label in enumerate(LABELS, start=1):
         print(f"    {i}. {label}")
+    if existing_label:
+        print(f"EXISTING label detected: {existing_label}\n\n")
     print("    s.skip (revisit later)")
     print("    q.quit (progress already saved)")
 
     while True:
         choice = input("> ").strip().lower()
         if choice == "q":
-            return "QUIT"
+            return QUIT
         if choice == "s":
             return None
         if choice.isdigit() and 1 <= int(choice) <= len(LABELS):
@@ -97,58 +100,76 @@ def prompt_notes(label: str) -> str:
             return notes
         print(" notes are required, explaining what you considered")
 
-def label_candidates(candidates_path: Path, out_path: Path, limit: int | None) -> None:
-    candidates = load_jsonl(candidates_path)
-    done = already_reviewed_ids(out_path)
-    todo = [c for c in candidates if c["id"] not in done]
+def label_candidates(candidates_path: Path, 
+                     out_path: Path, 
+                     limit: int | None,
+                     relabel: bool) -> None:
+    candidates = store.load_candidates(candidates_path)
+    labeled = store.LabelStore(out_path)
 
-    print(f"{len(candidates)} candidates total, {len(done)} already reviewd, {len(todo)} remaining.")
+    todo = [c 
+            for c in candidates.values() 
+            if relabel or c.id not in labeled.cases]
+
+    print(f"{len(candidates)} candidates total, {len(labeled.cases)} already reviewd, "
+          f"{len(todo)} to review.")
+
+
+    if relabel:
+        print("(--relabel: including already-labeled candidates)")
+    
     if limit:
         todo = todo[:limit]
         print(f"Limiting this session to {len(todo)}")
 
-    out_path.parent.mkdir(parents=True, exist_ok=True)
     saved_count = 0
+    skipped_count = 0
 
     for i, c in enumerate(todo, start=1):
-        try:
-            candidate = schema.Candidate(**c)
-        except Exception as e:
-            print(f" ! record failed schema validation, NOT saved: {e}")
-            continue
+        print_candidate(c, i, len(todo))
 
-        print_candidate(candidate, i, len(todo))
-        label = prompt_label()
+        existing = labeled.cases.get(c.id)
+        if existing:
+            print(f"Already labeled: {existing.id}")
+            if existing.notes:
+                print(f"  Notes: {existing.notes}")
 
-        if label == "QUIT":
-            print(f"\nStopped. {saved_count} labeled, {i - 1 - saved_count} skipped, "
-                  f"{len(todo) - i + 1} remaining - resume anytime with the same command.")
+        label = prompt_label(existing.label if existing else None)
+
+        if label == QUIT:
+            print(
+                f"\nSTOPPED. {saved_count} labeled, {skipped_count} skipped,"
+                f"{len(todo) - i + 1} remaining - resume anytime with same command"
+            )
             return
+
         if label is None:
-            print(" skipped.")
+            print("  skipped.")
+            skipped_count += 1
             continue
+
         notes = prompt_notes(label)
-
-
-        record = candidate_to_eval_case(c=candidate, label=label, notes=notes)
-
-        with open(out_path, "a") as f:
-            f.write(record.model_dump_json() + "\n")
+        total = labeled.put(c, label, notes)
         saved_count += 1
-        print(f" -> saved as {label}")
+        print(f"    -> saved as {label} ({total} labeled in total)")
 
     print(f"\nDone. {saved_count}/{len(todo)} labeled this batch.")
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--candidates", required=True, help="Path to a candidates.jsonl file from sourcing")
-    parser.add_argument("--out-path", default=None, help="Output labeled dataset file (default: data/labeled.jsonl)")
-    parser.add_argument("--limit", type=int, default=None, help="Review at most N candidates this session")
+    parser.add_argument("--out-path", default=None, help=f"Output labeled dataset file (default: {store.DEFAULT_OUT_PATH})")
+    parser.add_argument("--limit", type=int, default=None, help="Review at most N candidates")
+    parser.add_argument("--relabel", type=bool, help="Also revisit candidates that already have a label")
     args = parser.parse_args()
 
     candidates_path = Path(args.candidates)
-    default_out_path = Path(__file__).resolve().parent.parent / "data" / "labeled.jsonl"
-    out_path = Path(args.out_path) if args.out_path else default_out_path
-    label_candidates(candidates_path, out_path, args.limit)
+    if not candidates_path.exists():
+        parser.error(f"candidates file not found: {candidates_path}")
+
+    out_path = Path(args.out_path) if args.out_path else store.DEFAULT_OUT_PATH
+    label_candidates(candidates_path, out_path, args.limit, args.relabel)
 
 
+if __name__ == "__main__":
+    main()
