@@ -30,12 +30,6 @@ from schema import Candidate, EvalCase, Label, candidate_to_eval_case
 
 LABELS = list(get_args(Label))
 
-def load_jsonl(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    with open(path) as f:
-        return [json.loads(line) for line in f if line.strip()]
-
 
 def already_reviewed_ids(out_path: Path) -> set:
     return {row["id"] for row in load_jsonl(out_path)}
