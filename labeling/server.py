@@ -9,8 +9,14 @@ Usage:
     uv run uvicorn labeling.server:app --reload \
     -- port 8000
 
+
 Then open http://localhost:8000
-Candidate file is chose with CI_TRIAGE_CANDIATES (see below).
+
+Config:
+    CI_TRIAGE_CANDIATES  required - path to the candidates.jsonl from sourcing
+    CI_TRIAGE_OUT optional - output dataset(default: data/labeled.jsonl)
+
+Candidates and labels are loaded once at import and held in memory
 """
 
 import json
@@ -24,15 +30,42 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, ROOT)
-from schema import Candidate, EvalCase, Label, candidate_to_eval_case
+from schema import Label
+from labeling import store
 
 LABELS = list(get_args(Label))
-CANDIDATES_PATH = Path(os.environ.get("CI_TRIAGE_CANDIDATES"))
-if not CANDIDATES_PATH.exists:
-    raise Exception("Candidates path does not exists")
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-OUT_PATH = Path(os.environ.get("CI_TRIAGE_OUT", ROOT / "data/labeled.jsonl"))
+def _candidates_path() -> Path:
+    raw = os.environ.get("CI_TRIAGE_CANDIDATES")
+    if not raw:
+        raise RuntimeError(
+            "CI_TRIAGE_CANDIDATES is not set - point it at the candidates.jsonl "
+            "file from sourcing/candidates"
+        )
+
+    path = Path(raw)
+    if not path.is_file():
+        raise RuntimeError("CI_TRIAGE_CANDIDATES does not exists: {path}")
+    return path
+
+CANDIDATES_PATH = _candidates_path()
+OUT_PATH = Path(os.environ.get("CI_TRIAGE_OUT", store.DEFAULT_OUT_PATH))
+
+CANDIDATES = store.load_candidates(CANDIDATES_PATH)
+LABELED = store.LabelStore(OUT_PATH)
 
 app = FastAPI(title="CI Triage Labeler")
+
+class LabelRequest(BaseModel):
+    id: str
+    label: Label
+    notes: str = ""
+
+class LabelResponse(BaseModel):
+    ok: bool
+    labeled_count: int
+
+@app.get("/api/candidates")
+def list_candidates() -> dict:
+    
