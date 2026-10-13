@@ -19,9 +19,7 @@ Config:
 Candidates and labels are loaded once at import and held in memory
 """
 
-import json
 import os
-import sys
 from pathlib import Path
 from typing import get_args
 
@@ -67,5 +65,36 @@ class LabelResponse(BaseModel):
     labeled_count: int
 
 @app.get("/api/candidates")
-def list_candidates() -> dict:
-    
+def list_candidates() -> list[dict]:
+    return [c.model_dump() for c in CANDIDATES.values()]
+
+@app.get("/api/labels")
+def list_labels() -> dict:
+    return LABELS
+
+@app.get("api/labeled")
+def list_labeled() -> dict[str, dict]:
+    return {
+        id_: {"label": case.label, "notes": case.notes}
+        for id_, case in LABELED.cases.items()
+    }
+
+@app.post("api/label", response_model=LabelResponse)
+def save_label(req: LabelRequest) -> LabelResponse:
+    candidate = CANDIDATES.get(req.id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail=f"unknown candidate id: {req.id}")
+    if req.label == "unknown" and not req.notes.strip():
+        raise HTTPException(status_code=400, detail=f"notes are required when"
+                            "labeling 'unknown'")
+    count = LABELED.put(candidate, req.label, req.notes)
+    return LabelResponse(ok=True, labeled_count=count)
+
+@app.delete("api/label/{candidate_id}", response_model=LabelResponse)
+def remove_label(candidate_id: str) -> LabelResponse:
+    labeled_count = LABELED.delete(candidate_id=candidate_id)
+    return LabelResponse(ok=True, labeled_count=labeled_count)
+
+@app.get("/")
+def index() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")
