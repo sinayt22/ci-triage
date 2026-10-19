@@ -160,7 +160,7 @@ def main():
     parser.add_argument("--candidates", required=True, help="Path to a candidates.jsonl file from sourcing")
     parser.add_argument("--out-path", default=None, help=f"Output labeled dataset file (default: {store.DEFAULT_OUT_PATH})")
     parser.add_argument("--limit", type=int, default=None, help="Review at most N candidates")
-    parser.add_argument("--relabel", type=bool, help="Also revisit candidates that already have a label")
+    parser.add_argument("--relabel", action="store_true", help="Also revisit candidates that already have a label")
     args = parser.parse_args()
 
     candidates_path = Path(args.candidates)
