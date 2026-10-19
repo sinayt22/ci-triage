@@ -44,7 +44,7 @@ def _candidates_path() -> Path:
 
     path = Path(raw)
     if not path.is_file():
-        raise RuntimeError("CI_TRIAGE_CANDIDATES does not exists: {path}")
+        raise RuntimeError(f"CI_TRIAGE_CANDIDATES does not exists: {path}")
     return path
 
 CANDIDATES_PATH = _candidates_path()
