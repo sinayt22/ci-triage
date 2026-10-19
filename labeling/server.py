@@ -69,17 +69,17 @@ def list_candidates() -> list[dict]:
     return [c.model_dump() for c in CANDIDATES.values()]
 
 @app.get("/api/labels")
-def list_labels() -> dict:
+def list_labels() -> list[str]:
     return LABELS
 
-@app.get("api/labeled")
+@app.get("/api/labeled")
 def list_labeled() -> dict[str, dict]:
     return {
         id_: {"label": case.label, "notes": case.notes}
         for id_, case in LABELED.cases.items()
     }
 
-@app.post("api/label", response_model=LabelResponse)
+@app.post("/api/label", response_model=LabelResponse)
 def save_label(req: LabelRequest) -> LabelResponse:
     candidate = CANDIDATES.get(req.id)
     if candidate is None:
@@ -90,7 +90,7 @@ def save_label(req: LabelRequest) -> LabelResponse:
     count = LABELED.put(candidate, req.label, req.notes)
     return LabelResponse(ok=True, labeled_count=count)
 
-@app.delete("api/label/{candidate_id}", response_model=LabelResponse)
+@app.delete("/api/label/{candidate_id}", response_model=LabelResponse)
 def remove_label(candidate_id: str) -> LabelResponse:
     labeled_count = LABELED.delete(candidate_id=candidate_id)
     return LabelResponse(ok=True, labeled_count=labeled_count)
