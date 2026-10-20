@@ -17,17 +17,13 @@ without re-reviewing or duplicating.
 """
 
 import argparse
-import json
-import sys
 from pathlib import Path
 from typing import get_args
 
 
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from labeling import store
-import schema
-from schema import Candidate, Label, candidate_to_eval_case
+from schema import Candidate, Label
 
 LABELS = list(get_args(Label))
 QUIT = "QUIT"
@@ -45,7 +41,6 @@ def print_candidate(c: Candidate, index: int, total: int) -> None:
     print("-" * 78)
     print(f"RUN ATTEMPT: {c.run.run_attempt}")
     print("-" * 78)
-    workflow_config = c.workflow_config if len(c.workflow_config) < 1024 else f"{c.workflow_config} ...[[TRUNCATED]] "
     print(f"WORKFLOW CONFIG: {_truncate(c.workflow_config, 1024)}")
     print("-" * 78)
     print("LOG EXCERPT:")
@@ -130,7 +125,7 @@ def label_candidates(candidates_path: Path,
 
         existing = labeled.cases.get(c.id)
         if existing:
-            print(f"Already labeled: {existing.id}")
+            print(f"Already labeled: {existing.label}")
             if existing.notes:
                 print(f"  Notes: {existing.notes}")
 
@@ -138,7 +133,7 @@ def label_candidates(candidates_path: Path,
 
         if label == QUIT:
             print(
-                f"\nSTOPPED. {saved_count} labeled, {skipped_count} skipped,"
+                f"\nSTOPPED. {saved_count} labeled, {skipped_count} skipped, "
                 f"{len(todo) - i + 1} remaining - resume anytime with same command"
             )
             return
