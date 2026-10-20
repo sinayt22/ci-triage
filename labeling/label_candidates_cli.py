@@ -20,8 +20,6 @@ import argparse
 from pathlib import Path
 from typing import get_args
 
-
-
 from labeling import store
 from schema import Candidate, Label
 
@@ -55,6 +53,7 @@ def print_candidate(c: Candidate, index: int, total: int) -> None:
         print(f"heuristic_hint (Unverified): {hint}")
     print("=" * 78)
 
+
 def _truncate(text: str | None, limit: int) -> str:
     """Cap a text field so the text won't scroll the rest of the screen"""
     if not text:
@@ -62,6 +61,7 @@ def _truncate(text: str | None, limit: int) -> str:
     if len(text) <= limit:
         return text
     return f"{text[:limit]}\n...[[TRUNCATED {len(text) - limit:,} more chars]]"
+
 
 def prompt_label(existing_label: str | None) -> str | None:
     print("\nLabel:")
@@ -82,12 +82,13 @@ def prompt_label(existing_label: str | None) -> str | None:
             return LABELS[int(choice) - 1]
         print(f"    invalid input - enter 1-{len(LABELS)}, 's', or 'q'")
 
+
 def prompt_notes(label: str) -> str:
-    required = label == 'unknown'
+    required = label == "unknown"
     prompt = (
         "Notes (Required - explain your reasoning): "
-        if required else
-        "Notes (optional, Enter to skip): "
+        if required
+        else "Notes (optional, Enter to skip): "
     )
     while True:
         notes = input(prompt).strip()
@@ -95,24 +96,23 @@ def prompt_notes(label: str) -> str:
             return notes
         print(" notes are required, explaining what you considered")
 
-def label_candidates(candidates_path: Path, 
-                     out_path: Path, 
-                     limit: int | None,
-                     relabel: bool) -> None:
+
+def label_candidates(
+    candidates_path: Path, out_path: Path, limit: int | None, relabel: bool
+) -> None:
     candidates = store.load_candidates(candidates_path)
     labeled = store.LabelStore(out_path)
 
-    todo = [c 
-            for c in candidates.values() 
-            if relabel or c.id not in labeled.cases]
+    todo = [c for c in candidates.values() if relabel or c.id not in labeled.cases]
 
-    print(f"{len(candidates)} candidates total, {len(labeled.cases)} already reviewd, "
-          f"{len(todo)} to review.")
-
+    print(
+        f"{len(candidates)} candidates total, {len(labeled.cases)} already reviewd, "
+        f"{len(todo)} to review."
+    )
 
     if relabel:
         print("(--relabel: including already-labeled candidates)")
-    
+
     if limit:
         todo = todo[:limit]
         print(f"Limiting this session to {len(todo)}")
@@ -150,12 +150,27 @@ def label_candidates(candidates_path: Path,
 
     print(f"\nDone. {saved_count}/{len(todo)} labeled this batch.")
 
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--candidates", required=True, help="Path to a candidates.jsonl file from sourcing")
-    parser.add_argument("--out-path", default=None, help=f"Output labeled dataset file (default: {store.DEFAULT_OUT_PATH})")
-    parser.add_argument("--limit", type=int, default=None, help="Review at most N candidates")
-    parser.add_argument("--relabel", action="store_true", help="Also revisit candidates that already have a label")
+    parser.add_argument(
+        "--candidates",
+        required=True,
+        help="Path to a candidates.jsonl file from sourcing",
+    )
+    parser.add_argument(
+        "--out-path",
+        default=None,
+        help=f"Output labeled dataset file (default: {store.DEFAULT_OUT_PATH})",
+    )
+    parser.add_argument(
+        "--limit", type=int, default=None, help="Review at most N candidates"
+    )
+    parser.add_argument(
+        "--relabel",
+        action="store_true",
+        help="Also revisit candidates that already have a label",
+    )
     args = parser.parse_args()
 
     candidates_path = Path(args.candidates)

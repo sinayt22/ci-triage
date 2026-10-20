@@ -27,12 +27,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-
-from schema import Label
 from labeling import store
+from schema import Label
 
 LABELS = list(get_args(Label))
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
 
 def _candidates_path() -> Path:
     raw = os.environ.get("CI_TRIAGE_CANDIDATES")
@@ -47,6 +47,7 @@ def _candidates_path() -> Path:
         raise RuntimeError(f"CI_TRIAGE_CANDIDATES does not exists: {path}")
     return path
 
+
 CANDIDATES_PATH = _candidates_path()
 OUT_PATH = Path(os.environ.get("CI_TRIAGE_OUT", store.DEFAULT_OUT_PATH))
 
@@ -55,22 +56,27 @@ LABELED = store.LabelStore(OUT_PATH)
 
 app = FastAPI(title="CI Triage Labeler")
 
+
 class LabelRequest(BaseModel):
     id: str
     label: Label
     notes: str = ""
 
+
 class LabelResponse(BaseModel):
     ok: bool
     labeled_count: int
+
 
 @app.get("/api/candidates")
 def list_candidates() -> list[dict]:
     return [c.model_dump() for c in CANDIDATES.values()]
 
+
 @app.get("/api/labels")
 def list_labels() -> list[str]:
     return LABELS
+
 
 @app.get("/api/labeled")
 def list_labeled() -> dict[str, dict]:
@@ -79,21 +85,25 @@ def list_labeled() -> dict[str, dict]:
         for id_, case in LABELED.cases.items()
     }
 
+
 @app.post("/api/label", response_model=LabelResponse)
 def save_label(req: LabelRequest) -> LabelResponse:
     candidate = CANDIDATES.get(req.id)
     if candidate is None:
         raise HTTPException(status_code=404, detail=f"unknown candidate id: {req.id}")
     if req.label == "unknown" and not req.notes.strip():
-        raise HTTPException(status_code=400, detail=f"notes are required when"
-                            "labeling 'unknown'")
+        raise HTTPException(
+            status_code=400, detail="notes are required whenlabeling 'unknown'"
+        )
     count = LABELED.put(candidate, req.label, req.notes)
     return LabelResponse(ok=True, labeled_count=count)
+
 
 @app.delete("/api/label/{candidate_id}", response_model=LabelResponse)
 def remove_label(candidate_id: str) -> LabelResponse:
     labeled_count = LABELED.delete(candidate_id=candidate_id)
     return LabelResponse(ok=True, labeled_count=labeled_count)
+
 
 @app.get("/")
 def index() -> FileResponse:

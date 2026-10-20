@@ -1,12 +1,15 @@
 import json
 import statistics
+
 from errors import ClassificationParseError
 from schema import EvalCase
 from triage import classify
 
+
 def load(path):
     with open(path) as f:
-        return [EvalCase(**json.loads(l)) for l in f] 
+        return [EvalCase(**json.loads(line)) for line in f]
+
 
 def run(cases):
     results = []
@@ -15,8 +18,14 @@ def run(cases):
             pred = classify(c)
         except ClassificationParseError:
             pred = "PARSE_ERROR"
-        results.append({"id": c.id, "expected": c.label,
-                    "predicted": pred, "correct": pred == c.label})
+        results.append(
+            {
+                "id": c.id,
+                "expected": c.label,
+                "predicted": pred,
+                "correct": pred == c.label,
+            }
+        )
     return results
 
 
@@ -28,4 +37,3 @@ if __name__ == "__main__":
     for r in results:
         if not r["correct"]:
             print(f" MISS {r['id']}: expected {r['expected']}, got {r['predicted']}")
-

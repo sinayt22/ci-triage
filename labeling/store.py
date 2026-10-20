@@ -6,15 +6,14 @@ agree about it.
 
 """
 
-
 import json
 from pathlib import Path
 
 from schema import Candidate, EvalCase, Label, candidate_to_eval_case
 
-
-ROOT = (Path(__file__).resolve().parent.parent)
+ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT_PATH = ROOT / "data" / "labeled.jsonl"
+
 
 class LabelStore:
     """
@@ -25,10 +24,8 @@ class LabelStore:
         self.out_path = out_path
         self.cases: dict[str, EvalCase] = load_labeled(out_path)
 
-    def put(self, candidate: Candidate, label: Label, notes: str= "") -> int:
-        self.cases[candidate.id] = candidate_to_eval_case(candidate,
-                                                          label,
-                                                          notes)
+    def put(self, candidate: Candidate, label: Label, notes: str = "") -> int:
+        self.cases[candidate.id] = candidate_to_eval_case(candidate, label, notes)
         self._flush()
         return len(self.cases)
 
@@ -36,7 +33,7 @@ class LabelStore:
         self.cases.pop(candidate_id, None)
         self._flush()
         return len(self.cases)
-    
+
     def _flush(self) -> None:
         save_labeled(self.cases, self.out_path)
 
@@ -47,9 +44,10 @@ def load_jsonl(path: Path) -> list[dict]:
     with open(path) as f:
         return [json.loads(line) for line in f if line.strip()]
 
+
 def load_candidates(path: Path) -> dict[str, Candidate]:
     """Parse and validate every candidate, keyed by id.
-    
+
     Invalid rows are skipped with warning, rather than aborting.
     """
 
@@ -61,8 +59,10 @@ def load_candidates(path: Path) -> dict[str, Candidate]:
             print(f"! skipping invalid candidate {row.get('id')}: {e}")
     return out
 
+
 def load_labeled(out_path: Path) -> dict[str, EvalCase]:
     return {row["id"]: EvalCase(**row) for row in load_jsonl(out_path)}
+
 
 def save_labeled(cases: dict[str, EvalCase], out_path: Path) -> None:
 
@@ -74,9 +74,3 @@ def save_labeled(cases: dict[str, EvalCase], out_path: Path) -> None:
             f.write(case.model_dump_json() + "\n")
 
     tmp.replace(out_path)
-
-
-
-
-
-
