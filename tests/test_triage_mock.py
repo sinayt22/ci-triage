@@ -44,15 +44,20 @@ def test_model_returned_unknown_is_a_real_label_not_an_error():
 
 
 def test_malformed_json_raises_parse_error():
-    with _with_mocked_response("Sure! The label is flaky-test because..."):
-        with pytest.raises(triage.ClassificationParseError):
-            triage.classify(_case())
+    with (
+        _with_mocked_response("Sure! The label is flaky-test because..."),
+        pytest.raises(triage.ClassificationParseError),
+    ):
+        triage.classify(_case())
 
 
 def test_invalid_label_raises_parse_error():
-    with _with_mocked_response(
-        '{"label": "totally-made-up-label", "reasoning": "oops"}'
-    ), pytest.raises(triage.ClassificationParseError):
+    with (
+        _with_mocked_response(
+            '{"label": "totally-made-up-label", "reasoning": "oops"}'
+        ),
+        pytest.raises(triage.ClassificationParseError),
+    ):
         triage.classify(_case())
 
 

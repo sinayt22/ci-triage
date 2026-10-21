@@ -19,7 +19,15 @@ import requests
 from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from schema import *
+from schema import (
+    Candidate,
+    DiffInfo,
+    DiffStatus,
+    LogInfo,
+    RunInfo,
+    StepsInfo,
+    StepSummary,
+)
 
 load_dotenv()
 
