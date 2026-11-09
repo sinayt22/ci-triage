@@ -11,6 +11,35 @@ Use this doc to declare how each CI failure is categorized to a certain label. E
 
 This guide should give clear and concrete instruction on how to differentiate between the CI labels.
 
+## General Scan - where to start
+This section orients you. It points you to the labels whose decision rules you should check.
+If the rules doesn't resolve, follow the label's rules or nearest-neighbor disinction.
+
+### Step 0 - Is there a failure to classify?
+Apply `unknown` (unknown label rule #3) when either of these are true:
+Check unknown rule 3. If it applies, apply `unknown`. Otherwise, continue to step 1.
+
+### Step 1 - Read the context fields first
+| Field | What it tells you |
+|---|---|
+| `event`| `pull_request`: the diff is the PR, tested as a merge preview with the target branch. fork PRs get no secrets. `push`: the pushed commit(s). `schedule`: a nightly run - the diff is not what changed, suspect the environment. `workflow_dispatch`: started manually. |
+| `run_attempt` | Greater than 1 means someone re-ran this one. Failing again on the same commit weakens flaky-test (if you have historic information on the same run)|
+| `failed_step_name` | The layer that broke - see step 2 |
+| `diff_summary` | Classify what the diff touches: product code / tests / dependency files (requirements, lockfile, pyproejct) / CI config (`.github/`) / docs only / nothing. |
+| `workflow_config` | Which steps exists, the matrix, secrets used, timeout, `continue on error`. |
+
+### Step 2 - Which layer failed?
+Map the failed step to a layer and start with the label in the middle column.
+| Layer (typical step names) | Start with | Common alternatives
+|---|---|---|
+| Run never started: no jobs, "Invalid workflow file", startup failure | config-error | - |
+| Set up job (runner provisioning, downloading actions) | infra-error | config-error if an action or ref doesn't exist |
+| Checkout, cache restore, toolchain setup (setup-python, setup-node, ...) | infra-error for network errors, 5xx, timeouts | dependency-or-env if a requested version isn't available, config-error for a typo or invalid input |
+| Install dependencies/build (pip, uv, npm, compiling) | dependency-or-env | real-regression if the diff broke the build code itself (C sources, build scripts) |
+| static checks (lint, format, type check, docs build) | real-regression if the flagged lines are in files the diff touched | dependecy-or-env if the checker's version changed and it flags untouched code. config-error if the checker's own config is broken |
+| Tests | real-regression vs flaky-test | infra-error (a service the tests need is unreachable), config-error (missing secret or parameter), dependecy-or-env (import errors) |  
+| Upload / public / deploy | config-error (tokens, secrets, permissions) | infra-error (third party service down) |
+
 ## flaky-test
 
 ### Definition
@@ -20,13 +49,12 @@ run, simply because they depend on: timing, not guaranteed order, or specific co
 ### Decision rules
 1.
     a. Is this a re-run of a previous commit which produced different result (no commit changes)
-    OR
+OR
     b. Does the diff summary shows that the code changes are unrelated to the failing bug and/or touch non code area?
-
-    Check the logs for failing test:
+    Check the logs for failing test
 
 2. Log summary shows tests failed due to timeout of specific action of the test, distinguished from a timeout of the underlying infrastructure to run the test.
-    * Apply infra-timeouts's origin tests. If test-origin, continue below:
+    * Apply infra-error's origin tests. If test-origin, continue below:
     * Do we have keywords involving waiting for specific action, callback, request:
         - Check build configuration according to the config-error label rules
         if not applies:
@@ -43,8 +71,6 @@ run, simply because they depend on: timing, not guaranteed order, or specific co
     - If the condition is related to missing infrastructure - check for config-error conditions.
     - If the condition is related to the code of the test itself and the diff summary shows changes related to the code of the test - check for real-regression.
     - If none of the above apply unknown.
-    
-
 
 If condition 1 + 2 - apply flaky-test. Or if condition 3 or 4 resolve to flaky-test.
 
@@ -129,9 +155,9 @@ A timeout error in a test, but caused due to real regression because the call to
   change we introduced. A lot of time, historic runs help distinguish this (test that always succeeds suddenly fails), but, even without historic data, we should assume that if we introduced a change that logically affects the test, we should first check for regression
 
 
-## infra-timeout
+## infra-error
 ### Definition
-The build fails due to a problem in the infrastructure of the run itself, unrelated to the code in the package being built. The problem manifests as a timeout error when trying to initialize or access some resource needed for the build or when a test attempts to access an external resource that should exists but times-out.
+The build fails because a component outside the repository's code and configuration failed or was unavailable during the run: the runner, the network, a package registry, or a service the job connects to. It can show as a timeout or as another error: a refused or reset connection, a 5xx response, the runner losing communication or shutting down, a process killed for lack of memory, or a service rejecting connections because a limit was reached.
 
 ### Decision rules
 1. The log excerpt shows timeout errors, that origin from components that are related to the run itself, not from tests that test the code. To distinguish between test timeout and infra timeout - look for these signs by order of relevance:
@@ -140,13 +166,14 @@ The build fails due to a problem in the infrastructure of the run itself, unrela
     - The testing hasn't started yet -> infra fault
     - Has the test started, do we have notification that the test is waiting for a specific action, callback, request -> check for flaky-test rule 2
     - If none of the above signs are present in the log -> cannot determine origin from a single run -> apply unknown
+2. The log excerpt shows a non-timeout error that originates outside the repository’s code: a runner message (“The runner has received a shutdown signal”, “lost communication with the server”), a refused or reset connection, a DNS failure, a 5xx response from a registry, download or API, a process killed for lack of memory (exit code 137, Killed), or a service rejecting connections because a limit was reached (e.g. too many connections) → infra-error.
 
 ### Clear case example
-Timeout error when trying to connect to repo to checkout the code - infra-timeout
+Timeout error when trying to connect to repo to checkout the code - infra-error
 
 ### Edge case example
 Timeout error accessing a db - preflight check in the runner says db unavailable and times out, the code itself trying to access the resource
-and times out. First we check configuration, it exists and correct, so moving to check the conditions for the infra-timeout - preflight says db should be available, but it times out, no need to continue checking - apply infra-timeout. If preflight check for a db shows healthy, but code reaches timeout accessing db -> apply flaky-test.
+and times out. First we check configuration, it exists and correct, so moving to check the conditions for the infra-error - preflight says db should be available, but it times out, no need to continue checking - apply infra-error. If preflight check for a db shows healthy, but code reaches timeout accessing db -> apply flaky-test.
 
 ### Nearest-neighbor distinction
 - flaky-test: timeout errors coming from flaky-test needs to be distinguished from infra timeouts. They will both contain keywords related to timeout, but we need to consider the origin of the timeout itself.
@@ -165,7 +192,7 @@ no way to verify that. Then check:
 1. Log complains about wrong missing/wrong environment - check dependency-or-env label rule 3 to deterimine label.
 2. Log complains about test asseration caused by wrong test parameters. Check the test configuration and is it matching the intented the build setup. If not apply config-error
 3. Log complains about wrong credentials - check configuration on what resources with credentials are needed and whether we have the proper configuration to pass them on. If not - apply config-error.
-4. If log complains about missing resource, and it doesn't fall under infra-timeout rules, check the configuration on whether we have a list of resources that should be available and what the runner expects. If there's a mismatch - apply config-error. If they match - apply unknown.
+4. If log complains about missing resource, check the configuration on whether we have a list of resources that should be available and what the runner expects, there's a mismatch - apply config-error. If not - check infra-error rules. If they don't apply - apply unknown and state that resource was not available due to unknown reason.
 
 ### Clear case example
 Configuration logs exists and show entries for windows and linux setups. The configuration shows that the build is running on windows machine, but the code runner envirnment itself is configured for a linux machine. Log complain about missing tools in environment -> rule 1 of config error shows to go to dependency or env rule 3 -> the configuration exists and there's a mismatch -> config-error
@@ -192,7 +219,7 @@ Genuinely unsure if this is infra or something else entirely (runner-level Docke
 
 OR
 `E   elasticsearch.exceptions.ConnectionTimeout: Connection timed out\nE   TransportError(N/A, 'timeout')`
-Could be infra-timeout (ES cluster slow) or real-regression (new fields causing slow queries) - genuinely can't tell without more info. Leaving as unknown rather than guessing.
+Could be infra-error (ES cluster slow) or real-regression (new fields causing slow queries) - genuinely can't tell without more info. Leaving as unknown rather than guessing.
 
 ### Nearest-neighbor distinction
 Doesn't really have any - by definition the errors are when either not enough information or there's ambuiguity regarding what label should be applied.
