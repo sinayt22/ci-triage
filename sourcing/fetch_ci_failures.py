@@ -39,7 +39,7 @@ TIMESTAMP_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z")
 
 HINT_RULES = [
     (
-        "infra-timeout",
+        "infra-error",
         ["timed out", "timeout", "connection refused", "connection reset"],
     ),
     (

@@ -17,7 +17,7 @@ Choose exactly one lable from this set:
 - flaky-test: the failure looks unrelated to the diff and non-deterministic (timing, ordering, external falkiness)
 - dependency-or-env: a missing/incompatible package, binary, or environment issue
 - real-regression: the diff plausibly caused this failure
-- infra-timeout: the CI runner, network, or infrastructure timed out or was unreachable
+- infra-error: the CI runner, network, or infrastructure timed out or was unreachable
 - config-error: a config file, env var, or credential is missing or malformed
 - unknown: none of the above clearly apply, or there isn't enough information to decide
 

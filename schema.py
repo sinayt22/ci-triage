@@ -7,7 +7,7 @@ Label = Literal[
     "flaky-test",
     "dependency-or-env",
     "real-regression",
-    "infra-timeout",
+    "infra-error",
     "config-error",
     "unknown",
 ]

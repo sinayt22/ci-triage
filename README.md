@@ -2,7 +2,7 @@
 
 A system that reads a failing CI run (log excerpt + optional diff summary) and
 classifies it into one of six causes: `flaky-test`, `dependency-or-env`,
-`real-regression`, `infra-timeout`, `config-error`, `unknown`.
+`real-regression`, `infra-error`, `config-error`, `unknown`.
 This directory tracks the evals that decide whether changes to that system are
 actually improvements.
 
